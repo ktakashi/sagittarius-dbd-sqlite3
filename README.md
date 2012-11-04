@@ -26,3 +26,4 @@ Following describes the major differences.
 `dbi-fetch!` must be called until the very end of the statement, otherwise
 it might cause resource leak.
 
+NOTE: This library works Sagittarius 0.3.8 (current HEAD) or later.
