@@ -1,0 +1,112 @@
+;;; -*- mode:scheme; coding:utf-8; -*-
+;;;
+;;; dbd/sqlite3.scm - DBD for SQLite library
+;;;  
+;;;   Copyright (c) 2012  Takashi Kato  <ktakashi@ymail.com>
+;;;   
+;;;   Redistribution and use in source and binary forms, with or without
+;;;   modification, are permitted provided that the following conditions
+;;;   are met:
+;;;   
+;;;   1. Redistributions of source code must retain the above copyright
+;;;      notice, this list of conditions and the following disclaimer.
+;;;  
+;;;   2. Redistributions in binary form must reproduce the above copyright
+;;;      notice, this list of conditions and the following disclaimer in the
+;;;      documentation and/or other materials provided with the distribution.
+;;;  
+;;;   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+;;;   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+;;;   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+;;;   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+;;;   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+;;;   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+;;;   TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+;;;   PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+;;;   LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+;;;   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+;;;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+;;;  
+
+#!read-macro=sagittarius/regex
+(library (dbd sqlite3)
+    (export make-sqlite3-driver)
+    (import (rnrs)
+	    (sqlite3)
+	    (dbi)
+	    (clos user)
+	    (sagittarius)
+	    (sagittarius regex)
+	    (sagittarius control))
+  
+  (define-class <dbi-sqlite3-driver> (<dbi-driver>) ())
+  (define-class <dbi-sqlite3-connection> (<dbi-connection>)
+    ((db :init-keyword :db :reader sqlite3-driver-db)))
+  (define-class <dbi-sqlite3-query> (<dbi-query>)
+    ((stepped? :init-value #t :accessor sqlite3-query-stepped?)))
+  
+  (define-method dbi-make-connection ((driver <dbi-sqlite3-driver>)
+				      (options <string>)
+				      (option-alist <list>) . opt)
+    (let1 database (assoc "database" option-alist)
+      (unless database
+	(assertion-violation 'dbi-make-connection
+			     "database option is required" options))
+      (make <dbi-sqlite3-connection> :db (sqlite3-open (cdr database)))))
+
+  (define-method dbi-open? ((conn <dbi-sqlite3-connection>)) #t)
+  (define-method dbi-close ((conn <dbi-sqlite3-connection>))
+    (sqlite3-close! (sqlite3-driver-db conn)))
+
+  (define-method dbi-prepare ((conn <dbi-sqlite3-connection>)
+			      (sql <string>) . args)
+    (let1 stmt (sqlite3-prepare (sqlite3-driver-db conn) sql)
+      (apply sqlite3-bind! stmt args)
+      (make <dbi-sqlite3-query>
+	:connection (sqlite3-driver-db conn)
+	:prepared stmt)))
+  ;; commit and rollback are not supported
+  (define-method dbi-commit! ((conn <dbi-sqlite3-connection>)) #t)
+  (define-method dbi-commit! ((conn <dbi-sqlite3-connection>)) #t)
+  ;; query levels either
+  (define-method dbi-commit! ((query <dbi-sqlite3-query>)) #t)
+  (define-method dbi-rollback! ((query <dbi-sqlite3-query>)) #t)
+
+  (define-method dbi-bind-parameter! ((query <dbi-sqlite3-query>)
+				      (index <integer>) value . args)
+    (sqlite3-bind-1! (dbi-query-prepared query) index value))
+
+  (define-method dbi-execute! ((query <dbi-sqlite3-query>) . args)
+    (let* ((stmt (dbi-query-prepared query))
+	   (sql  (sqlite3-sql stmt)))
+      (unless (null? args) (apply sqlite3-bind! stmt args))
+      (cond ((#/^select.*/ sql) -1)
+	    (else
+	     (sqlite3-step! stmt)
+	     (let1 count (sqlite3-changes (dbi-query-connection query))
+	       (sqlite3-finalize! stmt)
+	       count)))))
+
+  (define-method dbi-fetch! ((query <dbi-sqlite3-query>))
+    (let* ((stmt (dbi-query-prepared query))
+	   (state (sqlite3-step! stmt)))
+      (cond ((eq? state 'row)
+	     (let* ((count (sqlite3-column-count stmt))
+		    (ret (make-vector count)))
+	       (do ((i 0 (+ i 1)))
+		   ((= i count) ret)
+		 (vector-set! ret i (sqlite3-column stmt i)))))
+	    (else
+	     (sqlite3-finalize! stmt)
+	     #f))))
+
+  (define-method dbi-fetch-all! ((query <dbi-sqlite3-query>))
+    (let loop ((v (dbi-fetch! query)) (r '()))
+      (if v
+	  (loop (dbi-fetch! query) (cons v r))
+	  (reverse! r))))
+  ;; not supported but just returns a empty vector
+  (define-method dbi-columns ((query <dbi-sqlite3-query>)) #())
+
+  (define (make-sqlite3-driver) (make <dbi-sqlite3-driver>))
+)

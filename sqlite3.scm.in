@@ -1,0 +1,250 @@
+;;; -*- mode:scheme; coding:utf-8; -*-
+;;;
+;;; sqlite3.scm - SQLite binding library
+;;;  
+;;;   Copyright (c) 2012  Takashi Kato  <ktakashi@ymail.com>
+;;;   
+;;;   Redistribution and use in source and binary forms, with or without
+;;;   modification, are permitted provided that the following conditions
+;;;   are met:
+;;;   
+;;;   1. Redistributions of source code must retain the above copyright
+;;;      notice, this list of conditions and the following disclaimer.
+;;;  
+;;;   2. Redistributions in binary form must reproduce the above copyright
+;;;      notice, this list of conditions and the following disclaimer in the
+;;;      documentation and/or other materials provided with the distribution.
+;;;  
+;;;   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+;;;   "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+;;;   LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+;;;   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+;;;   OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+;;;   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+;;;   TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+;;;   PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+;;;   LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+;;;   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+;;;   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+;;;  
+
+(library (sqlite3)
+    (export &sqlite-error sqlite-error?
+	    sqlite3-open sqlite3-close!
+	    sqlite3-exec!
+	    sqlite3-prepare sqlite3-step! sqlite3-finalize!
+	    sqlite3-reset! sqlite3-bind! sqlite3-bind-1!
+	    sqlite3-column sqlite3-column-count sqlite3-column-name
+	    sqlite3-column-decltype sqlite3-changes
+	    sqlite3-sql sqlite3-data-count)
+    (import (rnrs)
+	    (util list)
+	    (sagittarius)
+	    (sagittarius control)
+	    (sagittarius ffi))
+  ;; need to be configured by installation process
+  ;; but for now using the one I know.
+  (define-constant +sqlite3-library+ "@SQLITE3_LIBRARY@")
+  (define *sqlite3-library* (open-shared-library +sqlite3-library+))
+
+  ;; condition
+  (define-condition-type &sqlite-error &error 
+    make-sqlite-error sqlite-error?)
+
+  (define (sqlite-error who msg . irritants)
+    (raise (apply condition
+		  (filter values
+			  (list (make-sqlite-error)
+				(and who (make-who-condition who))
+				(make-message-condition msg)
+				(make-irritants-condition irritants))))))
+
+  ;; raw c interfaces
+  (define %sqlite3-open (c-function *sqlite3-library* 
+				    int sqlite3_open (char* void*)))
+  (define %sqlite3-exec (c-function *sqlite3-library* 
+				     int sqlite3_exec 
+				     (void* char* callback void* void*)))
+  (define %sqlite3-errmsg (c-function *sqlite3-library* 
+				      char* sqlite3_errmsg (void*)))
+  (define %sqlite3-free (c-function *sqlite3-library* 
+				     int sqlite3_free (void*)))
+  (define %sqlite3-prepare (c-function *sqlite3-library* 
+				       int sqlite3_prepare_v2 
+				       (void* char* int void* void*)))
+  ;; binds
+  (define %sqlite3-bind-blob (c-function *sqlite3-library*
+					 int sqlite3_bind_blob
+					 (void* int void* int int)))
+  (define %sqlite3-bind-double (c-function *sqlite3-library*
+					   int sqlite3_bind_double
+					   (void* int double)))
+  (define %sqlite3-bind-int64 (c-function *sqlite3-library*
+					  int sqlite3_bind_int64
+					  (void* int int64_t)))
+  (define %sqlite3-bind-null (c-function *sqlite3-library*
+					 int sqlite3_bind_null (void* int)))
+  (define %sqlite3-bind-text (c-function *sqlite3-library*
+					 int sqlite3_bind_text
+					 (void* int char* int int)))
+  (define %sqlite3-bind-value (c-function *sqlite3-library*
+					  int sqlite3_bind_value
+					  (void* int char* void*)))
+  (define %sqlite3-step (c-function *sqlite3-library* 
+				    int sqlite3_step (void*)))
+
+  (define sqlite3-bind-parameter-count
+    (c-function *sqlite3-library* int sqlite3_bind_parameter_count (void*)))
+
+  ;; columns
+  (define %sqlite3-column-blob (c-function *sqlite3-library* 
+					   void* sqlite3_column_blob
+					   (void* int)))
+  (define %sqlite3-column-bytes (c-function *sqlite3-library* 
+					   int sqlite3_column_bytes
+					   (void* int)))
+  (define %sqlite3-column-double (c-function *sqlite3-library* 
+					     double sqlite3_column_double
+					     (void* int)))
+  (define %sqlite3-column-int64 (c-function *sqlite3-library* 
+					    int64_t sqlite3_column_int64
+					    (void* int)))
+  (define %sqlite3-column-text (c-function *sqlite3-library* 
+					   char* sqlite3_column_text
+					   (void* int)))
+
+  ;; we can use these themselves
+  (define sqlite3-column-count (c-function *sqlite3-library* 
+					   int sqlite3_column_count (void*)))
+  (define %sqlite3-column-decltype (c-function *sqlite3-library* 
+					      char* sqlite3_column_decltype
+					      (void* int)))
+  (define sqlite3-column-name (c-function *sqlite3-library* 
+					  char* sqlite3_column_name
+					  (void* int)))
+  (define sqlite3-data-count (c-function *sqlite3-library* 
+					 int sqlite3_data_count (void*)))
+  (define sqlite3-changes (c-function *sqlite3-library* 
+				      int sqlite3_changes (void*)))
+  (define sqlite3-sql (c-function *sqlite3-library* 
+				  char* sqlite3_sql (void*)))
+  (define sqlite3-finalize! (c-function *sqlite3-library* 
+					int sqlite3_finalize (void*)))
+  (define sqlite3-reset! (c-function *sqlite3-library* 
+				     void sqlite3_reset (void*)))
+  (define sqlite3-close! (c-function *sqlite3-library* 
+				     void sqlite3_close (void*)))
+  
+  (define (handle-error who pointer code :optional (close? #f))
+    (let1 msg (%sqlite3-errmsg pointer)
+      (when close? (%sqlite3-close pointer))
+      (sqlite-error who msg)))
+
+  (define (sqlite3-open file)
+    (let* ((pointer (allocate-pointer size-of-void*))
+	   (address (pointer-address pointer))
+	   (rc (%sqlite3-open file address)))
+      (if (zero? rc)
+	  pointer
+	  (handle-error 'sqlite3-open pointer rc #t))))
+
+  (define (sqlite3-exec! context sql proc)
+    (define (column&value i argv columns)
+      (cons (pointer->string (deref columns i))
+	    (let1 p (deref argv i)
+	      (if (null-pointer? p)
+		  '()
+		  (pointer->string p)))))
+    (let* ((callback (c-callback int (void* int void* void*)
+				 (lambda (param argc argv cols)
+				   (do ((i 0 (+ i 1))
+					(r '() (cons (column&value i argv cols)
+						     r)))
+				       ((= i argc) (proc (reverse! r)))))))
+	   (err (allocate-pointer size-of-void*))
+	   (address (pointer-address err))
+	   (rc (%sqlite3-exec context sql callback null-pointer address)))
+      (unless (zero? rc)
+	(let1 msg (pointer->string err)
+	  (%sqlite3-free err)
+	  (sqlite-error 'sqlite3-exec! msg sql)))))
+
+  (define (sqlite3-prepare db sql)
+    (let* ((size (bytevector-length (string->utf8 sql)))
+	   (stmt (allocate-pointer size-of-void*))
+	   (address (pointer-address stmt))
+	   (rc (%sqlite3-prepare db sql size address null-pointer)))
+      (if (zero? rc)
+	  stmt
+	  (handle-error 'sqlite3-prepare db rc))))
+
+  (define (sqlite3-step! stmt)
+    (let1 rc (%sqlite3-step stmt)
+      (case rc
+	((100) 'row)
+	((101) 'done)
+	(else (handle-error 'sqlite3-step! stmt rc)))))
+
+  (define (sqlite3-bind-1! stmt i p)
+    (define (bind-blob i bv)
+      (let1 size (bytevector-length bv)
+	(if (zero? size)
+	    (%sqlite3-bind-null stmt i)
+	    (%sqlite3-bind-blob stmt i bv size -1))))
+    (let1 rc (cond ((and (input-port? p) (binary-port? p))
+		    ;; FIXME
+		    (bind-blob i (get-bytevector-all p)))
+		   ((string? p)
+		    (let1 bv (string->utf8 p)
+		      (%sqlite3-bind-text stmt i p
+					  (bytevector-length bv) -1)))
+		   ((integer? p)
+		    (%sqlite3-bind-int64 stmt i p))
+		   ((flonum? p)
+		    (%sqlite3-bind-double stmt i p))
+		   ((bytevector? p) (bind-blob i p))
+		   ((null? p) (%sqlite3-bind-null stmt i))
+		   (else (assertion-violation 
+			  'sqlite3-bind!
+			  "given parameter type is not support" p)))
+      (unless (zero? rc)
+	(handle-error 'sqlite3-bind! stmt rc))))
+
+  (define (sqlite3-bind! stmt . params)
+    (do ((i 1 (+ i 1)) (params params (cdr params)))
+	((null? params) stmt)
+      (sqlite3-bind-1! stmt i (car params))))
+
+
+  (define (sqlite3-column-decltype stmt index)
+    (let1 t (%sqlite3-column-decltype stmt index)
+      (if (null-pointer? t)
+	  'unknown
+	  (string->symbol t))))
+
+  (define (sqlite3-column stmt index :optional (type #f))
+    (let ((type (if type type (sqlite3-column-decltype stmt index)))
+	  (size (%sqlite3-column-bytes stmt index)))
+      (if (zero? size)
+	  '()
+	  (case type
+	    ((integer)			; SQLITE_INTEGER
+	     (%sqlite3-column-int64 stmt index))
+	    ((float)			; SQLITE_FLOAT
+	     (%sqlite3-column-double stmt index))
+	    ((text unknown)			; SQLITE_STRING, SQLITE_NULL
+	     (let1 r (%sqlite3-column-text stmt index)
+	       (if (null-pointer? r)
+		   ""
+		   r)))
+	    ((blob)				; SQLITE_BLOB
+	     ;; blob need special treatment
+	     (let1 p (%sqlite3-column-blob stmt index)
+	       (call-with-bytevector-output-port
+		(lambda (out)
+		  (dotimes (i size)
+		    (put-u8 out (pointer-ref-c-uint8 p i)))))))
+	    ;; should never happen
+	    (else (handle-error 'sqlite3-column stmt type))))))
+
+)
