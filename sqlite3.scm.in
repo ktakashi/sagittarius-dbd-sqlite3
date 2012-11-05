@@ -141,9 +141,8 @@
       (sqlite-error who msg)))
 
   (define (sqlite3-open file)
-    (let* ((pointer (allocate-pointer size-of-void*))
-	   (address (pointer-address pointer))
-	   (rc (%sqlite3-open file address)))
+    (let* ((pointer (empty-pointer))
+	   (rc (%sqlite3-open file (address pointer))))
       (if (zero? rc)
 	  pointer
 	  (handle-error 'sqlite3-open pointer rc #t))))
@@ -161,9 +160,8 @@
 					(r '() (cons (column&value i argv cols)
 						     r)))
 				       ((= i argc) (proc (reverse! r)))))))
-	   (err (allocate-pointer size-of-void*))
-	   (address (pointer-address err))
-	   (rc (%sqlite3-exec context sql callback null-pointer address)))
+	   (err (empty-pointer))
+	   (rc (%sqlite3-exec context sql callback null-pointer (address err))))
       (unless (zero? rc)
 	(let1 msg (pointer->string err)
 	  (%sqlite3-free err)
@@ -171,9 +169,8 @@
 
   (define (sqlite3-prepare db sql)
     (let* ((size (bytevector-length (string->utf8 sql)))
-	   (stmt (allocate-pointer size-of-void*))
-	   (address (pointer-address stmt))
-	   (rc (%sqlite3-prepare db sql size address null-pointer)))
+	   (stmt (empty-pointer))
+	   (rc (%sqlite3-prepare db sql size (address stmt) null-pointer)))
       (if (zero? rc)
 	  stmt
 	  (handle-error 'sqlite3-prepare db rc))))
