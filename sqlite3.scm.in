@@ -128,7 +128,7 @@
 				      int sqlite3_changes (void*)))
   (define sqlite3-sql (c-function *sqlite3-library* 
 				  char* sqlite3_sql (void*)))
-  (define sqlite3-finalize! (c-function *sqlite3-library* 
+  (define %sqlite3-finalize (c-function *sqlite3-library* 
 					int sqlite3_finalize (void*)))
   (define sqlite3-reset! (c-function *sqlite3-library* 
 				     void sqlite3_reset (void*)))
@@ -172,8 +172,11 @@
 	   (stmt (empty-pointer))
 	   (rc (%sqlite3-prepare db sql size (address stmt) null-pointer)))
       (if (zero? rc)
-	  stmt
+	  (register-ffi-finalizer stmt %sqlite3-finalize)
 	  (handle-error 'sqlite3-prepare db rc))))
+
+  (define (sqlite3-finalize! stmt)
+    (%sqlite3-finalize (unregister-ffi-finalizer stmt)))
 
   (define (sqlite3-step! stmt)
     (let1 rc (%sqlite3-step stmt)

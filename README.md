@@ -19,9 +19,4 @@ Following describes the major differences.
  * BLOBs are bytevector
  * Commit and rollback are not supported (always auto commit)
 
-### Important issue
-
-`dbi-fetch!` must be called until the very end of the statement, otherwise
-it might cause resource leak.
-
 NOTE: This library works Sagittarius 0.3.8 (current HEAD) or later.
