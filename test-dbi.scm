@@ -29,7 +29,6 @@
 	      "insert into test (i, f, t, b, n) values (?, ?, ?, ?, ?)"
 	      100 3.14 "text" #vu8(1 2 3 4 5) '())))
 
-
 (test-equal "fetch"
 	    '(#(100 3.14 "text" #vu8(1 2 3 4 5) ()))
 	    (let1 stmt (dbi-prepare conn "select * from test")
@@ -44,6 +43,14 @@
 	    (let1 stmt (dbi-prepare conn "select * from test")
 	      (dbi-execute! stmt)
 	      (dbi-fetch-all! stmt)))
+
+(test-equal "columns"
+	    #("i" "f" "t" "b" "n")
+	    (let1 stmt (dbi-prepare conn "select i, f, t, b, n from test")
+	      (dbi-execute! stmt)
+	      (let1 r (dbi-columns stmt)
+		(dbi-fetch-all! stmt)
+		r)))
 
 (test-assert "close" (dbi-close conn))
 (test-end)

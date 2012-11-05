@@ -43,7 +43,8 @@
   (define-class <dbi-sqlite3-connection> (<dbi-connection>)
     ((db :init-keyword :db :reader sqlite3-driver-db)))
   (define-class <dbi-sqlite3-query> (<dbi-query>)
-    ((stepped? :init-value #t :accessor sqlite3-query-stepped?)))
+    ;; temporary storage to keep the result of dbi-execute!
+    ((step :init-value #f :accessor sqlite3-query-step)))
   
   (define-method dbi-make-connection ((driver <dbi-sqlite3-driver>)
 				      (options <string>)
@@ -80,16 +81,22 @@
     (let* ((stmt (dbi-query-prepared query))
 	   (sql  (sqlite3-sql stmt)))
       (unless (null? args) (apply sqlite3-bind! stmt args))
+      (sqlite3-query-step query (sqlite3-step! stmt))
       (cond ((#/^select.*/ sql) -1)
 	    (else
-	     (sqlite3-step! stmt)
 	     (let1 count (sqlite3-changes (dbi-query-connection query))
 	       (sqlite3-finalize! stmt)
 	       count)))))
 
   (define-method dbi-fetch! ((query <dbi-sqlite3-query>))
+    (define (step-or-prev stmt)
+      (or (and-let* ((prev (sqlite3-query-step query))
+		     ( (memq  prev '(row done)) ))
+	    (sqlite3-query-step query 'invalid)
+	    prev)
+	  (sqlite3-step! stmt)))
     (let* ((stmt (dbi-query-prepared query))
-	   (state (sqlite3-step! stmt)))
+	   (state (step-or-prev stmt)))
       (cond ((eq? state 'row)
 	     (let* ((count (sqlite3-column-count stmt))
 		    (ret (make-vector count)))
@@ -106,7 +113,15 @@
 	  (loop (dbi-fetch! query) (cons v r))
 	  (reverse! r))))
   ;; not supported but just returns a empty vector
-  (define-method dbi-columns ((query <dbi-sqlite3-query>)) #())
+  (define-method dbi-columns ((query <dbi-sqlite3-query>))
+    (or (and-let* (( (symbol? (sqlite3-query-step query)) )
+		   (stmt (dbi-query-prepared query)))
+	  (let* ((count (sqlite3-column-count stmt))
+		 (ret (make-vector count)))
+	    (dotimes (i count ret)
+	      (vector-set! ret i (sqlite3-column-name stmt i)))))
+	(error 'dbi-columns
+	       "dbi-execute! must be called before")))
 
   (define (make-sqlite3-driver) (make <dbi-sqlite3-driver>))
 )

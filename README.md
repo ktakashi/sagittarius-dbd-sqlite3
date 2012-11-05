@@ -18,8 +18,6 @@ Following describes the major differences.
 
  * BLOBs are bytevector
  * Commit and rollback are not supported (always auto commit)
- * For `select`, `dbi-execute!` doesn't do anything.
- * `dbi-columns` doen't return column names but empty vector.
 
 ### Important issue
 
