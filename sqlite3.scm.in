@@ -135,7 +135,7 @@
 					int sqlite3_finalize (void*)))
   (define sqlite3-reset! (c-function *sqlite3-library* 
 				     void sqlite3_reset (void*)))
-  (define sqlite3-close! (c-function *sqlite3-library* 
+  (define %sqlite3-close (c-function *sqlite3-library* 
 				     void sqlite3_close (void*)))
 
   ;; for blob port
@@ -161,8 +161,11 @@
     (let* ((pointer (empty-pointer))
 	   (rc (%sqlite3-open file (address pointer))))
       (if (zero? rc)
-	  pointer
+	  (register-ffi-finalizer pointer %sqlite3-close)
 	  (handle-error 'sqlite3-open pointer rc #t))))
+
+  (define (sqlite3-close! context)
+    (%sqlite3-close (unregister-ffi-finalizer context)))
 
   (define (sqlite3-exec! context sql proc)
     (define (column&value i argv columns)
