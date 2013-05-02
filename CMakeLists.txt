@@ -6,6 +6,7 @@ IF (CYGWIN)
   # assume using default one
   SET(SQLITE3_LIBRARY "/bin/cygsqlite3-0.dll")
 ELSE()
+  # i'm not sure if this works on other platform.
   SET(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
   FIND_PACKAGE(Sqlite3 REQUIRED)
   IF (NOT SQLITE3_FOUND)

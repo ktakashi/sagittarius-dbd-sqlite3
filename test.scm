@@ -5,7 +5,7 @@
 (define-constant +db+  "test.db")
 (when (file-exists? +db+) (delete-file +db+))
 
-(test-begin "SQLite3 testsn")
+(test-begin "SQLite3 tests")
 ;; prepare
 (define context (sqlite3-open +db+))
 (test-assert "create table"
@@ -62,6 +62,29 @@
 		    (begin
 		      (sqlite3-finalize! stmt)
 		      r)))))
+
+;; blob port
+;; insert big data first
+(let1 stmt (sqlite3-prepare db "create table big_data (b blob)")
+  (sqlite3-step! stmt)
+  (sqlite3-finalize! stmt))
+(let1 stmt (sqlite3-prepare db "insert into big_data values (?)")
+  (call-with-input-file "sqlite3.scm.in"
+    (lambda (p)
+      (sqlite3-bind! stmt p)
+      (sqlite3-step! stmt)
+      (sqlite3-finalize! stmt))
+    :transcoder #f))
+
+(define file-size (file-size-in-bytes "sqlite3.scm.in"))
+(let1 bp (sqlite3-make-blob-input-port db "main" "big_data" "b" 1)
+  (call-with-port 
+   bp
+   (lambda (bp)
+     (test-assert "blob-port (binary?)" (binary-port? bp))
+     (test-assert "blob-port (input?)" (input-port? bp))
+     (let1 bv (get-bytevector-all bp)
+       (test-equal "size" file-size (bytevector-length bv))))))
 
 (test-assert "close" (sqlite3-close! db))
 (test-end)

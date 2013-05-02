@@ -36,7 +36,10 @@
 	    sqlite3-reset! sqlite3-bind! sqlite3-bind-1!
 	    sqlite3-column sqlite3-column-count sqlite3-column-name
 	    sqlite3-column-decltype sqlite3-changes
-	    sqlite3-sql sqlite3-data-count)
+	    sqlite3-sql sqlite3-data-count
+	    ;; special
+	    sqlite3-make-blob-input-port
+	    )
     (import (rnrs)
 	    (util list)
 	    (sagittarius)
@@ -132,8 +135,22 @@
 					int sqlite3_finalize (void*)))
   (define sqlite3-reset! (c-function *sqlite3-library* 
 				     void sqlite3_reset (void*)))
-  (define sqlite3-close! (c-function *sqlite3-library* 
+  (define %sqlite3-close (c-function *sqlite3-library* 
 				     void sqlite3_close (void*)))
+
+  ;; for blob port
+  (define %sqlite3-blob-open
+    (c-function *sqlite3-library* 
+		int sqlite3_blob_open 
+		(void* char* char* char* int64_t int void*)))
+  (define %sqlite3-blob-close
+    (c-function *sqlite3-library* int sqlite3_blob_close (void*)))
+  (define %sqlite3-blob-read
+    (c-function *sqlite3-library* int sqlite3_blob_read (void* void* int int)))
+  #;(define %sqlite3-blob-write
+    (c-function *sqlite3-library* int sqlite3_blob_write (void* void* int int)))
+  (define %sqlite3-blob-bytes
+    (c-function *sqlite3-library* int sqlite3_blob_bytes (void*)))
   
   (define (handle-error who pointer code :optional (close? #f))
     (let1 msg (%sqlite3-errmsg pointer)
@@ -144,8 +161,11 @@
     (let* ((pointer (empty-pointer))
 	   (rc (%sqlite3-open file (address pointer))))
       (if (zero? rc)
-	  pointer
+	  (register-ffi-finalizer pointer %sqlite3-close)
 	  (handle-error 'sqlite3-open pointer rc #t))))
+
+  (define (sqlite3-close! context)
+    (%sqlite3-close (unregister-ffi-finalizer context)))
 
   (define (sqlite3-exec! context sql proc)
     (define (column&value i argv columns)
@@ -246,5 +266,33 @@
 		    (put-u8 out (pointer-ref-c-uint8 p i)))))))
 	    ;; should never happen
 	    (else (handle-error 'sqlite3-column stmt type))))))
+
+  ;; we only supports read. SQLite's blob write doesn't make sense for me.
+  (define (sqlite3-make-blob-input-port context db table column index)
+    (let ((blob (empty-pointer))
+	  (position 0)
+	  (max-size #f))
+      ;; port operations
+      (define (read! bv start count)
+	;; for SQLite restriction, we need certain calculation here.
+	(if (>= position max-size)
+	    0
+	    (let* ((size (min (- count start) (- max-size position)))
+		   (buf (allocate-pointer size)))
+	      (unless (zero? (%sqlite3-blob-read blob buf size position))
+		(error 'blob-port-read! "something wrong" 
+		       `((posiiton ,position) (start ,start) (count ,count)
+			 (max-size ,max-size))))
+	      (set! position (+ position size))
+	      (dotimes (i size)
+		(bytevector-u8-set! bv (+ start i) (pointer-ref-c-uint8 buf i)))
+	      size)))
+      (define (close) (%sqlite3-blob-close blob))
+      (define (get-position) position)
+      (define (set-position! pos) (set! position pos))
+      (%sqlite3-blob-open context db table column index 0 (address blob))
+      (set! max-size (%sqlite3-blob-bytes blob))
+      (make-custom-binary-input-port "sqlite3-blob-input-port"
+				     read! get-position set-position! close)))
 
 )
