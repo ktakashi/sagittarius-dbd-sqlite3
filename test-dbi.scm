@@ -52,5 +52,10 @@
 		(dbi-fetch-all! stmt)
 		r)))
 
+(let ((stmt (dbi-prepare conn "select * from test")))
+  (test-assert (dbi-open? stmt))
+  (dbi-close stmt)
+  (test-assert (not (dbi-open? stmt))))
+
 (test-assert "close" (dbi-close conn))
 (test-end)

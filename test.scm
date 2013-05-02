@@ -63,9 +63,5 @@
 		      (sqlite3-finalize! stmt)
 		      r)))))
 
-(let ((stmt (sqlite3-prepare db "select * from test")))
-  (print stmt))
-(apply vector '(1 2 3 4 5 6 7 8 9 10))
-
 (test-assert "close" (sqlite3-close! db))
 (test-end)

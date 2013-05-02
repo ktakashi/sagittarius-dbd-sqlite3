@@ -36,13 +36,16 @@
 	    (dbi)
 	    (clos user)
 	    (sagittarius)
+	    (sagittarius object)
 	    (sagittarius regex)
 	    (sagittarius control))
   
   (define-class <dbi-sqlite3-driver> (<dbi-driver>) ())
-  (define-class <dbi-sqlite3-connection> (<dbi-connection>)
+  (define-class <state-mixin> ()
+    ((open? :init-value #t)))
+  (define-class <dbi-sqlite3-connection> (<dbi-connection> <state-mixin>)
     ((db :init-keyword :db :reader sqlite3-driver-db)))
-  (define-class <dbi-sqlite3-query> (<dbi-query>)
+  (define-class <dbi-sqlite3-query> (<dbi-query> <state-mixin>)
     ;; temporary storage to keep the result of dbi-execute!
     ((step :init-value #f :accessor sqlite3-query-step)))
   
@@ -55,9 +58,17 @@
 			     "database option is required" options))
       (make <dbi-sqlite3-connection> :db (sqlite3-open (cdr database)))))
 
-  (define-method dbi-open? ((conn <dbi-sqlite3-connection>)) #t)
+  (define-method dbi-open? ((conn <dbi-sqlite3-connection>))
+    (~ conn 'open?))
   (define-method dbi-close ((conn <dbi-sqlite3-connection>))
-    (sqlite3-close! (sqlite3-driver-db conn)))
+    (sqlite3-close! (sqlite3-driver-db conn))
+    (set! (~ conn 'open?) #f))
+
+  (define-method dbi-open? ((q <dbi-sqlite3-query>))
+    (~ q 'open?))
+  (define-method dbi-close ((q <dbi-sqlite3-query>))
+    (sqlite3-finalize! (dbi-query-prepared q))
+    (set! (~ q 'open?) #f))
 
   (define-method dbi-prepare ((conn <dbi-sqlite3-connection>)
 			      (sql <string>) . args)
@@ -68,7 +79,7 @@
 	:prepared stmt)))
   ;; commit and rollback are not supported
   (define-method dbi-commit! ((conn <dbi-sqlite3-connection>)) #t)
-  (define-method dbi-commit! ((conn <dbi-sqlite3-connection>)) #t)
+  (define-method dbi-rollback! ((conn <dbi-sqlite3-connection>)) #t)
   ;; query levels either
   (define-method dbi-commit! ((query <dbi-sqlite3-query>)) #t)
   (define-method dbi-rollback! ((query <dbi-sqlite3-query>)) #t)
