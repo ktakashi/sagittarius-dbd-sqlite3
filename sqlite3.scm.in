@@ -36,6 +36,7 @@
 	    sqlite3-reset! sqlite3-bind! sqlite3-bind-1!
 	    sqlite3-column sqlite3-column-count sqlite3-column-name
 	    sqlite3-column-decltype sqlite3-changes
+	    sqlite3-column-type
 	    sqlite3-sql sqlite3-data-count
 	    ;; special
 	    sqlite3-make-blob-input-port
@@ -122,6 +123,9 @@
   (define %sqlite3-column-decltype (c-function *sqlite3-library* 
 					      char* sqlite3_column_decltype
 					      (void* int)))
+  (define %sqlite3-column-type (c-function *sqlite3-library* 
+					   int sqlite3_column_type
+					   (void* int)))
   (define sqlite3-column-name (c-function *sqlite3-library* 
 					  char* sqlite3_column_name
 					  (void* int)))
@@ -242,8 +246,20 @@
 	  'unknown
 	  (string->symbol t))))
 
-  (define (sqlite3-column stmt index :optional (type #f))
-    (let ((type (if type type (sqlite3-column-decltype stmt index)))
+  ;; from https://www.sqlite.org/c3ref/c_blob.html
+  (define (sqlite3-column-type stmt index)
+    (case (%sqlite3-column-type stmt index)
+      ((1) 'integer)
+      ((2) 'float)
+      ((3) 'text)
+      ((4) 'blob)
+      (else  'unknown)))
+
+  ;; not sure if anybody is using but for backward compatibility
+  ;; we need to make this procedure allow to accept optional
+  ;; arguments
+  (define (sqlite3-column stmt index . ignore)
+    (let ((type (sqlite3-column-type stmt index))
 	  (size (%sqlite3-column-bytes stmt index)))
       (if (zero? size)
 	  '()
