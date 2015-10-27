@@ -155,7 +155,7 @@
   (define (handle-error who pointer code :optional (close? #f))
     (let1 msg (%sqlite3-errmsg pointer)
       (when close? (sqlite3-close! pointer))
-      (sqlite-error who msg)))
+      (sqlite-error who msg code)))
 
   (define (sqlite3-open file)
     (let* ((pointer (empty-pointer))
