@@ -94,10 +94,9 @@
       (unless (null? args) (apply sqlite3-bind! stmt args))
       (sqlite3-query-step query (sqlite3-step! stmt))
       (cond ((#/^select.*/ sql) -1)
-	    (else
-	     (let1 count (sqlite3-changes (dbi-query-connection query))
-	       (sqlite3-finalize! stmt)
-	       count)))))
+	    ;; Don't call sqlite3-finalize! here, otherwise
+	    ;; dbi-close causes SIGABRT
+	    (else (sqlite3-changes (dbi-query-connection query))))))
 
   (define-method dbi-fetch! ((query <dbi-sqlite3-query>))
     (define (step-or-prev stmt)
@@ -115,7 +114,8 @@
 		   ((= i count) ret)
 		 (vector-set! ret i (sqlite3-column stmt i)))))
 	    (else
-	     (sqlite3-finalize! stmt)
+	     ;; Same gose dbi-execute!
+	     ;; (sqlite3-finalize! stmt)
 	     #f))))
 
   (define-method dbi-fetch-all! ((query <dbi-sqlite3-query>))
