@@ -188,6 +188,7 @@
 				       ((= i argc) (proc (reverse! r)))))))
 	   (err (empty-pointer))
 	   (rc (%sqlite3-exec context sql callback null-pointer (address err))))
+      (free-c-callback callback)
       (unless (zero? rc)
 	(let1 msg (pointer->string err)
 	  (%sqlite3-free err)
