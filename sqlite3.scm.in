@@ -46,6 +46,7 @@
 	    (sagittarius)
 	    (sagittarius control)
 	    (sagittarius ffi)
+	    (only (binary io) open-chunked-binary-input/output-port)
 	    (srfi :13)
 	    (srfi :19))
   ;; need to be configured by installation process
@@ -118,6 +119,10 @@
   (define %sqlite3-column-text (c-function *sqlite3-library* 
 					   char* sqlite3_column_text
 					   (void* int)))
+  ;; int sqlite3_blob_bytes(sqlite3_blob *);
+  (define %sqlite3-blob-bytes (c-function *sqlite3-library*
+					  int sqlite3_blob_bytes
+					  (void*)))
 
   ;; we can use these themselves
   (define sqlite3-column-count (c-function *sqlite3-library* 
@@ -326,11 +331,12 @@
 		     (else r)))))
 	    ((blob)				; SQLITE_BLOB
 	     ;; blob need special treatment
-	     (let1 p (%sqlite3-column-blob stmt index)
-	       (call-with-bytevector-output-port
-		(lambda (out)
-		  (dotimes (i size)
-		    (put-u8 out (pointer-ref-c-uint8 p i)))))))
+	     (let ((p (%sqlite3-column-blob stmt index))
+		   (in/out (open-chunked-binary-input/output-port)))
+	       (dotimes (i size)
+		 (put-u8 in/out (pointer-ref-c-uint8 p i)))
+	       (set-port-position! in/out 0)
+	       in/out))
 	    ;; should never happen
 	    (else (handle-error 'sqlite3-column stmt type))))))
 
