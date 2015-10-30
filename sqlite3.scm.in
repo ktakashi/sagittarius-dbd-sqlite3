@@ -334,6 +334,8 @@
 		     (else r)))))
 	    ((blob)				; SQLITE_BLOB
 	     ;; blob need special treatment
+	     ;; TODO we probably want to convert this to
+	     ;;      blob input port.
 	     (let ((p (%sqlite3-column-blob stmt index))
 		   (in/out (open-chunked-binary-input/output-port)))
 	       (dotimes (i size)
