@@ -193,6 +193,7 @@
 				       ((= i argc) (proc (reverse! r)))))))
 	   (err (empty-pointer))
 	   (rc (%sqlite3-exec context sql callback null-pointer (address err))))
+      (free-c-callback callback)
       (unless (zero? rc)
 	(let1 msg (pointer->string err)
 	  (%sqlite3-free err)
@@ -303,10 +304,12 @@
 		 ;; there is no way to handle millisecond/nonosecond
 		 ;; with SRFI-19. *sigh*
 		 (if time?
-		     (let ((tmp (string->date r "~Y-~m-~d ~H:~M:~S"))
-			   (millis (substring r 
-					      (+ (string-index-right r #\.) 1)
-					      (string-length r))))
+		     (let* ((tmp (string->date r "~Y-~m-~d ~H:~M:~S"))
+			    (pos (string-index-right r #\.))
+			    (millis (if pos
+					(substring r (+ pos 1)
+						   (string-length r))
+					"0")))
 		       (make-date (* (string->number millis) 1000000)
 				  (date-second tmp)
 				  (date-minute tmp)
