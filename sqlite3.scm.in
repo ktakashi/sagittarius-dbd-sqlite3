@@ -136,18 +136,18 @@
   (define sqlite3-column-name (c-function *sqlite3-library* 
 					  char* sqlite3_column_name
 					  (void* int)))
-  (define sqlite3-column-database-name 
-    (c-function *sqlite3-library* 
-		char* sqlite3_column_database_name
-		(void* int)))
-  (define sqlite3-column-table-name
-    (c-function *sqlite3-library* 
-		char* sqlite3_column_table_name
-		(void* int)))
-  (define sqlite3-column-origin-name
-    (c-function *sqlite3-library* 
-		char* sqlite3_column_origin_name
-		(void* int)))
+;;   (define sqlite3-column-database-name 
+;;     (c-function *sqlite3-library* 
+;; 		char* sqlite3_column_database_name
+;; 		(void* int)))
+;;   (define sqlite3-column-table-name
+;;     (c-function *sqlite3-library* 
+;; 		char* sqlite3_column_table_name
+;; 		(void* int)))
+;;   (define sqlite3-column-origin-name
+;;     (c-function *sqlite3-library* 
+;; 		char* sqlite3_column_origin_name
+;; 		(void* int)))
   (define sqlite3-data-count (c-function *sqlite3-library* 
 					 int sqlite3_data_count (void*)))
   (define sqlite3-changes (c-function *sqlite3-library* 
