@@ -16,4 +16,4 @@ returning data are not the same.
 
 Following describes the major differences.
 
- * Commit and rollback are not supported (always auto commit)
+ * ~~Commit and rollback are not supported (always auto commit)~~
