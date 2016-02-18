@@ -46,6 +46,7 @@
 	    (sagittarius)
 	    (sagittarius control)
 	    (sagittarius ffi)
+	    (only (binary io) open-chunked-binary-input/output-port)
 	    (srfi :13)
 	    (srfi :19))
   ;; need to be configured by installation process
@@ -118,6 +119,10 @@
   (define %sqlite3-column-text (c-function *sqlite3-library* 
 					   char* sqlite3_column_text
 					   (void* int)))
+  ;; int sqlite3_blob_bytes(sqlite3_blob *);
+  (define %sqlite3-blob-bytes (c-function *sqlite3-library*
+					  int sqlite3_blob_bytes
+					  (void*)))
 
   ;; we can use these themselves
   (define sqlite3-column-count (c-function *sqlite3-library* 
@@ -131,6 +136,18 @@
   (define sqlite3-column-name (c-function *sqlite3-library* 
 					  char* sqlite3_column_name
 					  (void* int)))
+  (define sqlite3-column-database-name 
+    (c-function *sqlite3-library* 
+		char* sqlite3_column_database_name
+		(void* int)))
+  (define sqlite3-column-table-name
+    (c-function *sqlite3-library* 
+		char* sqlite3_column_table_name
+		(void* int)))
+  (define sqlite3-column-origin-name
+    (c-function *sqlite3-library* 
+		char* sqlite3_column_origin_name
+		(void* int)))
   (define sqlite3-data-count (c-function *sqlite3-library* 
 					 int sqlite3_data_count (void*)))
   (define sqlite3-changes (c-function *sqlite3-library* 
@@ -143,6 +160,10 @@
 				     void sqlite3_reset (void*)))
   (define %sqlite3-close (c-function *sqlite3-library* 
 				     void sqlite3_close (void*)))
+
+  ;; to get database handle from statement
+  (define sqlite3-db-handle (c-function *sqlite3-library*
+					void* sqlite3_db_handle (void*)))
 
   ;; for blob port
   (define %sqlite3-blob-open
@@ -157,7 +178,14 @@
     (c-function *sqlite3-library* int sqlite3_blob_write (void* void* int int)))
   (define %sqlite3-blob-bytes
     (c-function *sqlite3-library* int sqlite3_blob_bytes (void*)))
-  
+
+  (define sqlite3-errmsg 
+    (c-function *sqlite3-library* char* sqlite3_errmsg (void*)))
+
+  ;; sqlite3_int64 sqlite3_last_insert_rowid(sqlite3*);
+  (define sqlite3-last-insert-rowid
+    (c-function *sqlite3-library* int64_t sqlite3_last_insert_rowid (void*)))
+
   (define (handle-error who pointer code :optional (close? #f))
     (let1 msg (%sqlite3-errmsg pointer)
       (when close? (sqlite3-close! pointer))
@@ -329,11 +357,21 @@
 		     (else r)))))
 	    ((blob)				; SQLITE_BLOB
 	     ;; blob need special treatment
-	     (let1 p (%sqlite3-column-blob stmt index)
-	       (call-with-bytevector-output-port
-		(lambda (out)
-		  (dotimes (i size)
-		    (put-u8 out (pointer-ref-c-uint8 p i)))))))
+	     ;; the following works only if we can get rowid 
+	     ;; from given statement. couldn't find such an API.
+	     #;
+	     (let ((db (sqlite3-column-database-name stmt index))
+		   (tbl (sqlite3-column-table-name stmt index))
+		   (origin (sqlite3-column-origin-name stmt index))
+		   (context (sqlite3-db-handle stmt))
+		   (rowid (somehow-get-it-from-stmt stmt index)))
+	       (sqlite3-make-blob-input-port context db tbl origin rowid))
+	     (let ((p (%sqlite3-column-blob stmt index))
+		   (in/out (open-chunked-binary-input/output-port)))
+	       (dotimes (i size)
+		 (put-u8 in/out (pointer-ref-c-uint8 p i)))
+	       (set-port-position! in/out 0)
+	       in/out))
 	    ;; should never happen
 	    (else (handle-error 'sqlite3-column stmt type))))))
 
@@ -347,20 +385,23 @@
 	;; for SQLite restriction, we need certain calculation here.
 	(if (>= position max-size)
 	    0
-	    (let* ((size (min (- count start) (- max-size position)))
-		   (buf (allocate-pointer size)))
-	      (unless (zero? (%sqlite3-blob-read blob buf size position))
+	    (let* ((size (min count (- max-size position))))
+	      (unless (zero? (%sqlite3-blob-read blob 
+						 (address bv start)
+						 size position))
 		(error 'blob-port-read! "something wrong" 
 		       `((posiiton ,position) (start ,start) (count ,count)
 			 (max-size ,max-size))))
 	      (set! position (+ position size))
-	      (dotimes (i size)
-		(bytevector-u8-set! bv (+ start i) (pointer-ref-c-uint8 buf i)))
 	      size)))
       (define (close) (%sqlite3-blob-close blob))
       (define (get-position) position)
       (define (set-position! pos) (set! position pos))
-      (%sqlite3-blob-open context db table column index 0 (address blob))
+      (let ((rc (%sqlite3-blob-open context db table column index 
+				    0 (address blob))))
+	(unless (zero? rc)
+	  (error 'sqlite3-make-blob-input-port (sqlite3-errmsg context) rc)))
+      
       (set! max-size (%sqlite3-blob-bytes blob))
       (make-custom-binary-input-port "sqlite3-blob-input-port"
 				     read! get-position set-position! close)))

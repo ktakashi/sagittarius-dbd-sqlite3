@@ -2,6 +2,7 @@
 (import (rnrs) (sagittarius control)
 	(dbi) (sqlite3)
 	(srfi :19)
+	(srfi :26)
 	(srfi :64))
 
 (define-constant +db+  "test.db")
@@ -34,21 +35,29 @@
 	      (dbi-close q)
 	      r))
 
+(define (get-value col)
+  (if (input-port? col)
+      (get-bytevector-all col)
+      col))
+(define (get-values col)
+  (vector-map get-value col))
+
 (test-equal "fetch"
 	    '(#(100 3.14 "text" #vu8(1 2 3 4 5) ()))
 	    (let1 stmt (dbi-prepare conn "select * from test")
 	      (dbi-execute! stmt)
 	      (let loop ((v (dbi-fetch! stmt)) (r '()))
 		(if v
-		    (loop (dbi-fetch! stmt) (cons v r))
+		    (loop (dbi-fetch! stmt) (cons (get-values v) r))
 		    (begin (dbi-close stmt) r)))))
 
 (test-equal "fetch-all"
 	    '(#(100 3.14 "text" #vu8(1 2 3 4 5) ()))
 	    (let1 stmt (dbi-prepare conn "select * from test")
 	      (dbi-execute! stmt)
-	      (rlet1 r (dbi-fetch-all! stmt)
-		(dbi-close stmt))))
+	      (let1 r (dbi-fetch-all! stmt)
+		(dbi-close stmt)
+		(map get-values r))))
 
 (test-equal "columns"
 	    #("i" "f" "t" "b" "n")

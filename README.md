@@ -16,7 +16,4 @@ returning data are not the same.
 
 Following describes the major differences.
 
- * BLOBs are bytevector
  * Commit and rollback are not supported (always auto commit)
-
-NOTE: This library works Sagittarius 0.3.8 (current HEAD) or later.
