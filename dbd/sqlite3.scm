@@ -40,27 +40,39 @@
 	    (sagittarius regex)
 	    (sagittarius control))
   
+  (define (emit-begin db)
+    (sqlite3-exec! db "begin" (lambda (_) #t)))
+  (define (emit-rollback db)
+    (sqlite3-exec! db "rollback" (lambda (_) #t)))
+  (define (emit-commit db)
+    (sqlite3-exec! db "commit" (lambda (_) #t)))
+
   (define-class <dbi-sqlite3-driver> (<dbi-driver>) ())
   (define-class <state-mixin> ()
     ((open? :init-value #t)))
   (define-class <dbi-sqlite3-connection> (<dbi-connection> <state-mixin>)
-    ((db :init-keyword :db :reader sqlite3-driver-db)))
+    ((db :init-keyword :db :reader sqlite3-driver-db)
+     (auto-commit :init-keyword :auto-commit)))
   (define-class <dbi-sqlite3-query> (<dbi-query> <state-mixin>)
     ;; temporary storage to keep the result of dbi-execute!
     ((step :init-value #f :accessor sqlite3-query-step)))
   
   (define-method dbi-make-connection ((driver <dbi-sqlite3-driver>)
-				      (options <string>)
-				      (option-alist <list>) . opt)
+				      options option-alist 
+				      :key (auto-commit #f)
+				      :allow-other-keys)
     (let1 database (assoc "database" option-alist)
       (unless database
 	(assertion-violation 'dbi-make-connection
 			     "database option is required" options))
-      (make <dbi-sqlite3-connection> :db (sqlite3-open (cdr database)))))
+      (let1 db (sqlite3-open (cdr database))
+	(unless auto-commit (emit-begin db))
+	(make <dbi-sqlite3-connection> :db db :auto-commit auto-commit))))
 
   (define-method dbi-open? ((conn <dbi-sqlite3-connection>))
     (~ conn 'open?))
   (define-method dbi-close ((conn <dbi-sqlite3-connection>))
+    (unless (~ conn 'auto-commit) (emit-rollback (sqlite3-driver-db conn)))
     (sqlite3-close! (sqlite3-driver-db conn))
     (set! (~ conn 'open?) #f))
 
@@ -77,12 +89,20 @@
       (make <dbi-sqlite3-query>
 	:connection (sqlite3-driver-db conn)
 	:prepared stmt)))
-  ;; commit and rollback are not supported
-  (define-method dbi-commit! ((conn <dbi-sqlite3-connection>)) #t)
-  (define-method dbi-rollback! ((conn <dbi-sqlite3-connection>)) #t)
-  ;; query levels either
-  (define-method dbi-commit! ((query <dbi-sqlite3-query>)) #t)
-  (define-method dbi-rollback! ((query <dbi-sqlite3-query>)) #t)
+  ;; we do manual commit/rollback
+  (define-method dbi-commit! ((conn <dbi-sqlite3-connection>)) 
+    (unless (~ conn 'auto-commit)
+      (emit-commit (sqlite3-driver-db conn))
+      (emit-begin  (sqlite3-driver-db conn))))
+  (define-method dbi-rollback! ((conn <dbi-sqlite3-connection>)) 
+    (unless (~ conn 'auto-commit)
+      (emit-rollback (sqlite3-driver-db conn))
+      (emit-begin  (sqlite3-driver-db conn))))
+  ;; FIXME this doesn't separate query transaction per connection...
+  (define-method dbi-commit! ((query <dbi-sqlite3-query>)) 
+    (dbi-commit! (dbi-query-connection query)))
+  (define-method dbi-rollback! ((query <dbi-sqlite3-query>))
+    (dbi-rollback! (dbi-query-connection query)))
 
   (define-method dbi-bind-parameter! ((query <dbi-sqlite3-query>)
 				      (index <integer>) value . args)

@@ -23,6 +23,8 @@
 (test-error "duplicate "sqlite-error?
 	    (dbi-execute! (dbi-prepare conn "create table test (id int)")))
 
+(dbi-commit! conn)
+
 (test-equal "insert" 1 
 	    (let* ((q (dbi-prepare 
 		       conn
@@ -62,6 +64,7 @@
   (dbi-close stmt)
   (test-assert (not (dbi-open? stmt))))
 
+(dbi-commit! conn)
 
 (test-assert 
  "create table (2)"
@@ -69,6 +72,7 @@
 	    "create table test_date (t timestamp, d date, dt datetime)")))
    (dbi-execute! q)
    (dbi-close q)))
+(dbi-commit! conn)
 
 (test-equal "insert(2)" 1 
 	    (let* ((q (dbi-prepare 
@@ -101,6 +105,11 @@
 	       (let1 v (vector-ref (dbi-fetch! stmt) 0)
 		 (dbi-close stmt)
 		 (date? v))))
+
+(dbi-rollback! conn)
+(test-assert "rollbacked!"
+	     (let1 stmt (dbi-prepare conn "select d from test_date")
+	       (not (dbi-fetch! (dbi-execute-query! stmt)))))
 
 (test-assert "close" (dbi-close conn))
 (test-end)
