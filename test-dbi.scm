@@ -12,12 +12,9 @@
 ;; prepare
 (define conn (dbi-connect (string-append "dbi:sqlite3:database=" +db+)))
 
-(test-assert 
- "create table"
- (let ((q (dbi-prepare conn
-	    "create table test (i integer, f float, t text, b blob, n int)")))
-   (dbi-execute! q)
-   (dbi-close q)))
+(test-assert "create table"
+ (dbi-execute-using-connection! conn
+  "create table test (i integer, f float, t text, b blob, n int)"))
 
 (test-error "invalid syntax" sqlite-error?
 	    (dbi-execute! (dbi-prepare conn "create table ttt")))

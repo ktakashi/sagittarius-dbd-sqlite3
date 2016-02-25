@@ -91,13 +91,11 @@
 	:prepared stmt)))
   ;; we do manual commit/rollback
   (define-method dbi-commit! ((conn <dbi-sqlite3-connection>)) 
-    (unless (~ conn 'auto-commit)
-      (emit-commit (sqlite3-driver-db conn))
-      (emit-begin  (sqlite3-driver-db conn))))
+    (emit-commit (sqlite3-driver-db conn))
+    (unless (~ conn 'auto-commit) (emit-begin  (sqlite3-driver-db conn))))
   (define-method dbi-rollback! ((conn <dbi-sqlite3-connection>)) 
-    (unless (~ conn 'auto-commit)
-      (emit-rollback (sqlite3-driver-db conn))
-      (emit-begin  (sqlite3-driver-db conn))))
+    (emit-rollback (sqlite3-driver-db conn))
+    (unless (~ conn 'auto-commit) (emit-begin  (sqlite3-driver-db conn))))
   ;; FIXME this doesn't separate query transaction per connection...
   (define-method dbi-commit! ((query <dbi-sqlite3-query>)) 
     (dbi-commit! (dbi-query-connection query)))
