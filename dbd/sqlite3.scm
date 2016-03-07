@@ -104,6 +104,9 @@
 
   (define-method dbi-bind-parameter! ((query <dbi-sqlite3-query>)
 				      (index <integer>) value . args)
+    (when (sqlite3-query-step query)
+      (sqlite3-reset! (dbi-query-prepared query))
+      (sqlite3-query-step query #f))
     (sqlite3-bind-1! (dbi-query-prepared query) index value))
 
   (define-method dbi-execute! ((query <dbi-sqlite3-query>) . args)

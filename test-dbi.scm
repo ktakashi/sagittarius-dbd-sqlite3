@@ -89,6 +89,22 @@
 	      (dbi-close q)
 	      r))
 
+(test-equal "insert(3)" 5 
+	    (let ((q (dbi-prepare 
+		      conn
+		      "insert into test_date (t, d, dt) values (?, ?, ?)"
+		      )))
+	      (let loop ((i 0))
+		(if (= i 5)
+		    (begin
+		      (dbi-close q)
+		      i)
+		    (begin 
+		      (dbi-bind-parameter! q 1 (current-time))
+		      (dbi-bind-parameter! q 2 (current-date))
+		      (dbi-bind-parameter! q 3 (current-date))
+		      (dbi-execute! q)
+		      (loop (+ i 1)))))))
 
 (test-assert "fetch (timestamp)"
 	     (let1 stmt (dbi-prepare conn "select t from test_date")
