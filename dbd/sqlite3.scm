@@ -87,7 +87,7 @@
     (let1 stmt (sqlite3-prepare (sqlite3-driver-db conn) sql)
       (apply sqlite3-bind! stmt args)
       (make <dbi-sqlite3-query>
-	:connection (sqlite3-driver-db conn)
+	:connection conn
 	:prepared stmt)))
   ;; we do manual commit/rollback
   (define-method dbi-commit! ((conn <dbi-sqlite3-connection>)) 
@@ -117,7 +117,8 @@
       (cond ((#/^select.*/ sql) -1)
 	    ;; Don't call sqlite3-finalize! here, otherwise
 	    ;; dbi-close causes SIGABRT
-	    (else (sqlite3-changes (dbi-query-connection query))))))
+	    (else (sqlite3-changes 
+		   (sqlite3-driver-db (dbi-query-connection query)))))))
 
   (define-method dbi-fetch! ((query <dbi-sqlite3-query>))
     (define (step-or-prev stmt)
